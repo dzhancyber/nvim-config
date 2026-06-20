@@ -1,91 +1,96 @@
 return {
   {
-    "williamboman/mason.nvim",
-    config = function()
-      require("mason").setup()
-    end,
-  },
-  {
-    "williamboman/mason-lspconfig.nvim",
-    config = function()
-      require("mason-lspconfig").setup({
-        ensure_installed = { "lua_ls", "basedpyright", "ts_ls",},
-      })
-    end,
-  },
-  {
     "neovim/nvim-lspconfig",
+    dependencies = {
+      "williamboman/mason.nvim",
+      "williamboman/mason-lspconfig.nvim",
+    },
     config = function()
-      -- Enable inline diagnostics
+      -- 1. Initialize Mason
+      require("mason").setup()
+
+      -- 2. Initialize Mason-LSPConfig (Ensures your tools are downloaded)
+      require("mason-lspconfig").setup({
+        ensure_installed = { "lua_ls", "basedpyright", "ts_ls", "intelephense", "ruff" },
+      })
+
+      -- 3. Set up beautiful Nerd Font diagnostics
+      local signs = { Error = " ", Warn = " ", Hint = " ", Info = " " }
+      for type, icon in pairs(signs) do
+        local hl = "DiagnosticSign" .. type
+        vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = "" })
+      end
+
       vim.diagnostic.config({
         virtual_text = {
-          prefix = "●", -- Symbol for virtual text (e.g., ● for errors/warnings)
-          source = "always", -- Show diagnostic source (e.g., lua_ls)
+          prefix = "▎", -- Sleek vertical bar
+          source = "always",
         },
-        signs = true, -- Show signs in the gutter (e.g., E for errors)
-        underline = true, -- Underline problematic code
-        update_in_insert = false, -- Don't update diagnostics while typing
-        severity_sort = true, -- Show errors before warnings
+        signs = true,
+        underline = true,
+        update_in_insert = false,
+        severity_sort = true,
         float = {
-          border = "rounded", -- Rounded border for diagnostic popups
-          source = "always", -- Show source in popup
+          border = "rounded",
+          source = "always",
         },
       })
 
-      -- ✅ Define LSP configurations (new API)
-      local lsp = vim.lsp
+      -- 4. Setup LSPs (The Neovim 0.11+ Native Way!)
+      -- Notice we completely deleted `require("lspconfig")` here
+      local capabilities = vim.lsp.protocol.make_client_capabilities()
 
-      lsp.config["lua_ls"] = {
-        cmd = { "lua-language-server" },
-        settings = {
-          Lua = {
-            diagnostics = { globals = { "vim" } },
-            workspace = { checkThirdParty = false },
-            telemetry = { enable = false },
-          },
-        },
-      }
-
-      lsp.config["basedpyright"] = {
-        cmd = { "basedpyright-langserver", "--stdio" },
-        filetypes = { "python" },
-      }
-
-      lsp.config["ts_ls"] = {
-        cmd = { "typescript-language-server", "--stdio" },
-        filetypes = { "javascript", "typescript", "javascriptreact", "typescriptreact" },
-      }
-
-      lsp.config["intelephense"] = {
-        cmd = { "intelephense", "--stdio" },
-        filetypes = { "php" },
-        root_markers = { "composer.json", "artisan" },
-        settings = {
-          intelephense = {
-            environment = {
-              includePaths = { "vendor" },
+      local servers = {
+        basedpyright = {},
+        ts_ls = {},
+        ruff = {},
+        lua_ls = {
+          settings = {
+            Lua = {
+              diagnostics = { globals = { "vim" } },
+              workspace = { checkThirdParty = false },
+              telemetry = { enable = false },
             },
-            files = { maxSize = 1000000 },
+          },
+        },
+        intelephense = {
+          settings = {
+            intelephense = {
+              environment = { includePaths = { "vendor" } },
+              files = { maxSize = 1000000 },
+            },
           },
         },
       }
 
-      -- ✅ Auto-start servers when filetype matches
-      vim.api.nvim_create_autocmd("FileType", {
-        pattern = { "lua", "python", "javascript", "typescript", "php" },
-        callback = function()
-          local ft = vim.bo.filetype
-          local config = lsp.config[ft == "javascript" and "ts_ls" or ft]
-          if config then lsp.start(config) end
+      -- Loop through the servers and use the new native API
+      for server_name, config in pairs(servers) do
+        -- Inject the capabilities into the config
+        config.capabilities = vim.tbl_deep_extend("force", {}, capabilities, config.capabilities or {})
+
+        -- Apply the config to Neovim's native core
+        vim.lsp.config(server_name, config)
+
+        -- Enable the server!
+        vim.lsp.enable(server_name)
+      end
+
+      -- 5. Keybindings (Only attach when LSP is running)
+      vim.api.nvim_create_autocmd("LspAttach", {
+        group = vim.api.nvim_create_augroup("UserLspConfig", {}),
+        callback = function(ev)
+          local map = vim.keymap.set
+          map("n", "K", vim.lsp.buf.hover, { buffer = ev.buf, desc = "Show hover info" })
+          map("n", "gd", vim.lsp.buf.definition, { buffer = ev.buf, desc = "Go to definition" })
+          map("n", "<leader>ca", vim.lsp.buf.code_action, { buffer = ev.buf, desc = "Code action" })
+          map(
+            "n",
+            "<leader>e",
+            vim.diagnostic.open_float,
+            { buffer = ev.buf, desc = "Show diagnostic details" }
+          )
         end,
       })
-
-      -- Keybindings
-      local map = vim.keymap.set
-      map("n", "K", vim.lsp.buf.hover, { desc = "Show hover info" })
-      map("n", "gd", vim.lsp.buf.definition, { desc = "Go to definition" })
-      map("n", "<leader>ca", vim.lsp.buf.code_action, { desc = "Code action" })
-      map("n", "<leader>e", vim.diagnostic.open_float, { desc = "Show diagnostic details" })
     end,
   },
 }
